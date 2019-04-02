@@ -30,12 +30,12 @@ class QRScanner : CDVPlugin, AVCaptureMetadataOutputObjectsDelegate {
                 }
             }
             
-            self.videoPreviewLayer?.connection.videoOrientation = interfaceOrientationToVideoOrientation(UIApplication.shared.statusBarOrientation);
+            self.videoPreviewLayer?.connection?.videoOrientation = interfaceOrientationToVideoOrientation(UIApplication.shared.statusBarOrientation);
         }
         
         
         func addPreviewLayer(_ previewLayer:AVCaptureVideoPreviewLayer?) {
-            previewLayer!.videoGravity = AVLayerVideoGravityResizeAspectFill
+            previewLayer!.videoGravity = AVLayerVideoGravity.resizeAspectFill
             previewLayer!.frame = self.bounds
             self.layer.addSublayer(previewLayer!)
             self.videoPreviewLayer = previewLayer;
@@ -121,7 +121,7 @@ class QRScanner : CDVPlugin, AVCaptureMetadataOutputObjectsDelegate {
     }
 
     func prepScanner(command: CDVInvokedUrlCommand) -> Bool{
-        let status = AVCaptureDevice.authorizationStatus(forMediaType: AVMediaTypeVideo)
+        let status = AVCaptureDevice.authorizationStatus(for: .video)
         if (status == AVAuthorizationStatus.restricted) {
             self.sendErrorCode(command: command, error: QRScannerError.camera_access_restricted)
             return false
@@ -133,12 +133,12 @@ class QRScanner : CDVPlugin, AVCaptureMetadataOutputObjectsDelegate {
             if (captureSession?.isRunning != true){
                 cameraView.backgroundColor = UIColor.clear
                 self.webView!.superview!.insertSubview(cameraView, belowSubview: self.webView!)
-                let availableVideoDevices = AVCaptureDevice.devices(withMediaType: AVMediaTypeVideo)
-                for device in availableVideoDevices as! [AVCaptureDevice] {
-                    if device.position == AVCaptureDevicePosition.back {
+                let availableVideoDevices = AVCaptureDevice.DiscoverySession.init(deviceTypes: [AVCaptureDevice.DeviceType.builtInWideAngleCamera], mediaType: .video, position: .back)
+                for device: AVCaptureDevice in availableVideoDevices.devices {
+                    if device.position == AVCaptureDevice.Position.back {
                         backCamera = device
                     }
-                    else if device.position == AVCaptureDevicePosition.front {
+                    else if device.position == AVCaptureDevice.Position.front {
                         frontCamera = device
                     }
                 }
@@ -149,14 +149,18 @@ class QRScanner : CDVPlugin, AVCaptureMetadataOutputObjectsDelegate {
                 let input: AVCaptureDeviceInput
                 input = try self.createCaptureDeviceInput()
                 captureSession = AVCaptureSession()
-                captureSession!.addInput(input)
                 metaOutput = AVCaptureMetadataOutput()
-                captureSession!.addOutput(metaOutput)
-                metaOutput!.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
-                metaOutput!.metadataObjectTypes = [AVMetadataObjectTypeQRCode]
-                captureVideoPreviewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
-                cameraView.addPreviewLayer(captureVideoPreviewLayer)
-                captureSession!.startRunning()
+                if let metaOutput: AVCaptureMetadataOutput = metaOutput, let captureSession: AVCaptureSession = captureSession {
+                    captureSession.addInput(input)
+                    captureSession.addOutput(metaOutput)
+                    metaOutput.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
+                    metaOutput.metadataObjectTypes = [AVMetadataObject.ObjectType.qr]
+                    captureVideoPreviewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
+                    cameraView.addPreviewLayer(captureVideoPreviewLayer)
+                    captureSession.startRunning()
+                } else {
+                    self.sendErrorCode(command: command, error: QRScannerError.unexpected_error)
+                }
             }
             return true
         } catch CaptureError.backCameraUnavailable {
@@ -210,9 +214,9 @@ class QRScanner : CDVPlugin, AVCaptureMetadataOutputObjectsDelegate {
     }
 
     func configureLight(command: CDVInvokedUrlCommand, state: Bool){
-        var useMode = AVCaptureTorchMode.on
+        var useMode = AVCaptureDevice.TorchMode.on
         if(state == false){
-            useMode = AVCaptureTorchMode.off
+            useMode = AVCaptureDevice.TorchMode.off
         }
         do {
             // torch is only available for back camera
@@ -238,7 +242,7 @@ class QRScanner : CDVPlugin, AVCaptureMetadataOutputObjectsDelegate {
             return
         }
         let found = metadataObjects[0] as! AVMetadataMachineReadableCodeObject
-        if found.type == AVMetadataObjectTypeQRCode && found.stringValue != nil {
+        if found.type == AVMetadataObject.ObjectType.qr && found.stringValue != nil {
             scanning = false
             let pluginResult = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: found.stringValue)
             commandDelegate!.send(pluginResult, callbackId: nextScanningCommand?.callbackId!)
@@ -246,6 +250,7 @@ class QRScanner : CDVPlugin, AVCaptureMetadataOutputObjectsDelegate {
         }
     }
 
+    @objc
     func pageDidLoad() {
       self.webView?.isOpaque = false
       self.webView?.backgroundColor = UIColor.clear
@@ -254,10 +259,10 @@ class QRScanner : CDVPlugin, AVCaptureMetadataOutputObjectsDelegate {
     // ---- BEGIN EXTERNAL API ----
 
     func prepare(_ command: CDVInvokedUrlCommand){
-        let status = AVCaptureDevice.authorizationStatus(forMediaType: AVMediaTypeVideo)
+        let status = AVCaptureDevice.authorizationStatus(for: .video)
         if (status == AVAuthorizationStatus.notDetermined) {
             // Request permission before preparing scanner
-            AVCaptureDevice.requestAccess(forMediaType: AVMediaTypeVideo, completionHandler: { (granted) -> Void in
+            AVCaptureDevice.requestAccess(for: .video, completionHandler: { (granted) -> Void in
                 // attempt to prepScanner only after the request returns
                 self.backgroundThread(delay: 0, completion: {
                     if(self.prepScanner(command: command)){
@@ -305,7 +310,7 @@ class QRScanner : CDVPlugin, AVCaptureMetadataOutputObjectsDelegate {
             paused = true;
             scanning = false;
         }
-        captureVideoPreviewLayer?.connection.isEnabled = false
+        captureVideoPreviewLayer?.connection?.isEnabled = false
         self.getStatus(command)
     }
 
@@ -314,7 +319,7 @@ class QRScanner : CDVPlugin, AVCaptureMetadataOutputObjectsDelegate {
             paused = false;
             scanning = true;
         }
-        captureVideoPreviewLayer?.connection.isEnabled = true
+        captureVideoPreviewLayer?.connection?.isEnabled = true
         self.getStatus(command)
     }
 
@@ -395,7 +400,7 @@ class QRScanner : CDVPlugin, AVCaptureMetadataOutputObjectsDelegate {
 
     func getStatus(_ command: CDVInvokedUrlCommand){
 
-        let authorizationStatus = AVCaptureDevice.authorizationStatus(forMediaType: AVMediaTypeVideo);
+        let authorizationStatus = AVCaptureDevice.authorizationStatus(for: .video);
 
         var authorized = false
         if(authorizationStatus == AVAuthorizationStatus.authorized){
@@ -419,7 +424,7 @@ class QRScanner : CDVPlugin, AVCaptureMetadataOutputObjectsDelegate {
 
         var previewing = false
         if(captureVideoPreviewLayer != nil){
-            previewing = captureVideoPreviewLayer!.connection.isEnabled
+            previewing = captureVideoPreviewLayer?.connection?.isEnabled ?? false
         }
 
         var showing = false
@@ -428,7 +433,7 @@ class QRScanner : CDVPlugin, AVCaptureMetadataOutputObjectsDelegate {
         }
 
         var lightEnabled = false
-        if(backCamera?.torchMode == AVCaptureTorchMode.on){
+        if(backCamera?.torchMode == AVCaptureDevice.TorchMode.on){
             lightEnabled = true
         }
 
@@ -438,7 +443,7 @@ class QRScanner : CDVPlugin, AVCaptureMetadataOutputObjectsDelegate {
         }
 
         var canEnableLight = false
-        if(backCamera?.hasTorch == true && backCamera?.isTorchAvailable == true && backCamera?.isTorchModeSupported(AVCaptureTorchMode.on) == true){
+        if(backCamera?.hasTorch == true && backCamera?.isTorchAvailable == true && backCamera?.isTorchModeSupported(AVCaptureDevice.TorchMode.on) == true){
             canEnableLight = true
         }
 
